@@ -1,0 +1,23 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1522788932130.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "0",
+    "id" : "FEEF3C3",
+    "lastKnownWriteTime" : 1522874896,
+    "last_content_update" : 1522874896553,
+    "path" : "~/Dropbox/Documents/NOAA_postdoc/gfw_animation/map_animation.R",
+    "project_path" : "map_animation.R",
+    "properties" : {
+        "cursorPosition" : "27,34",
+        "scrollLine" : "37",
+        "tempName" : "Untitled1"
+    },
+    "relative_order" : 1,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

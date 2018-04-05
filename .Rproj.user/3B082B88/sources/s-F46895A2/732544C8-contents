@@ -1,0 +1,576 @@
+#Jonathan Sweeney
+#R code for modeling fish demand using methods from Angrist et al.
+#12/8/14
+
+#Install and Load Packages
+install.packages("systemfit")
+install.packages("weatherData")
+install.packages("reshape")
+install.packages("foreign")
+
+#clear memory
+rm(list=ls())
+
+library(foreign, systemfit, weatherData, reshape)
+
+#set working directory
+setwd("C:/Users/Jon/Dropbox/Documents/research/supply_demand_elas/fish_demand/")
+
+#load Angrist data
+yourData <- read.dta("fishdata.dta")
+write.csv(yourData, file = "fishdata.csv")
+
+fish.data=read.csv("fishdata.csv")
+
+attach(fish.data)
+
+######################
+#Summary plots
+######################
+
+#scatter plot data price and quantity.
+plot(pricelevel~qty)
+
+#scatter plot data log(price) and quantity
+plot(price~qty)
+
+#plot log(price) and date
+plot(price~date)
+
+#convert date variable
+fish.data$date.ch=as.character(date)
+#drop old date colum
+subset(fish.data, select=-c(date))
+fish.data$date=as.Date(fish.data$date.ch,"%y%m%d")
+
+
+
+#plot log(price) date.
+plot(price~fish.data$date)
+
+#fit a simple regression line to this
+summary(lm(price~qty))
+
+#generate summary table
+summary(fish.data)
+
+#generate reduced form estimates
+summary(lm(price~stormy))
+
+#generate elasticities
+Esn=(mean(qty[stormy==1]-mean(qty[stormy==0])))/(mean(price[stormy==1])-mean(price[stormy==0]))
+Esn
+
+
+######################
+#Stock Two-Stage Least Squeares
+######################
+library("systemfit")
+#Use systemfit to estimate equations
+
+#Define demand equation
+eqDemand=qty~price
+
+#Define supply equation
+eqSupply=qty~price+stormy+mixed
+
+#Define instruments
+inst=~stormy+mixed
+
+#Fit OLS to system of equations
+eqSystem=list(demand=eqDemand, supply=eqSupply)
+fit2sls1=systemfit(eqSystem,method="2SLS",inst=inst)
+print(fit2sls1)
+
+#plot regression line on scatter plot
+plot(price~qty)
+abline(fit2sls1)
+
+######################
+#Develop Marine Weather Instrument
+######################
+
+marine.data=read.csv("NE_marine_weather.csv")
+
+#drop multiple headers in dataframe
+marine.data=subset(marine.data, marine.data$Time.UTC!="Time-UTC")
+
+#"reshape" data so buoy id is a variable
+library(reshape)
+
+marine.data=reshape(marine.data, idvar="Time.UTC",
+                    varying=list(
+                      c("X44007.Daily_Average.Wave_Height_m","X44013.Daily_Average.Wave_Height_m","X44017.Daily_Average.Wave_Height_m","X44020.Daily_Average.Wave_Height_m","A01.Daily_Average.Wave_Height_m"),
+                      c("X44007.Daily_Average.Wind_Speed_m.s","X44013.Daily_Average.Wind_Speed_m.s","X44017.Daily_Average.Wind_Speed_m.s","X44020.Daily_Average.Wind_Speed_m.s","A01.Daily_Average.Wind_Speed_m.s"),
+                      c("X44007.Daily_Average.Wave_Period_s","X44013.Daily_Average.Wave_Period_s","X44017.Daily_Average.Wave_Period_s","X44020.Daily_Average.Wave_Period_s","A01.Daily_Average.Wave_Period_s"),
+                      c("X44007.Daily_Average.Wind_Gust_m.s","X44013.Daily_Average.Wind_Gust_m.s","X44017.Daily_Average.Wind_Gust_m.s","X44020.Daily_Average.Wind_Gust_m.s","A01.Daily_Average.Wind_Gust_m.s"),
+                      c("X44007.Daily_Average.Atmospheric_Pressure_mb","X44013.Daily_Average.Atmospheric_Pressure_mb","X44017.Daily_Average.Atmospheric_Pressure_mb","X44020.Daily_Average.Atmospheric_Pressure_mb","A01.Daily_Average.Atmospheric_Pressure_mb"),
+                      c("X44007.Daily_Average.Air_Temperatures_Deg_F","X44013.Daily_Average.Air_Temperatures_Deg_F","X44017.Daily_Average.Air_Temperatures_Deg_F","X44020.Daily_Average.Air_Temperatures_Deg_F","A01.Daily_Average.Air_Temperatures_Deg_F"),
+                      c("X44007.Daily_High.Wave_Height_m","X44013.Daily_High.Wave_Height_m","X44017.Daily_High.Wave_Height_m","X44020.Daily_High.Wave_Height_m","A01.Daily_High.Wave_Height_m"),
+                      c("X44007.Daily_High.Wind_Speed_m.s","X44013.Daily_High.Wind_Speed_m.s","X44017.Daily_High.Wind_Speed_m.s","X44020.Daily_High.Wind_Speed_m.s","A01.Daily_High.Wind_Speed_m.s")),
+                    v.names=c("Daily_Average.Wave_Height_m","Daily_Average.Wind_Speed_m.s","Daily_Average.Wave_Period_s","Daily_Average.Wind_Gust_m.s","Daily_Average.Atmospheric_Pressure_mb","Daily_Average.Air_Temperatures_Deg_F","Daily_High.Wave_Height_m","Daily_High.Wind_Speed_m.s"),
+                    times=c("X44007","X44013","X44017","X44020","A01"),
+                    timevar="buoy",
+                    direction="long")
+
+colnames(marine.data)[1]="date"
+marine.data$date=as.Date(marine.data$date)
+
+#generate Fulton marine data.
+ny.marine.data1=read.csv("44025h1991.csv", header=T)
+ny.marine.data2=read.csv("44025h1992.csv", header=T)
+ny.marine.data3=read.csv("44008h1991.csv", header=T)
+ny.marine.data4=read.csv("44008h1992.csv", header=T)
+
+ny.marine.data5=rbind(ny.marine.data1, ny.marine.data2)
+ny.marine.data6=rbind(ny.marine.data3, ny.marine.data4)
+
+#merge two bouys.
+ny.marine.data=merge(ny.marine.data5, ny.marine.data6, by=c("YY","MM","DD","hh"), suffixes=c("_44025","_44008"))
+
+#concatonate date
+ny.marine.data$date=do.call(paste,c(ny.marine.data[c("YY","MM","DD")], sep="-"))
+ny.marine.data$date=as.Date(ny.marine.data$date,"%y-%m-%d")
+
+#calculate daily means
+ny.marine.data=aggregate(ny.marine.data, by=list(ny.marine.data$date), FUN=mean, na.rm=T)
+
+#Calculate moving averages of all weather variables 1, 2, 3, and 4 days before the trading day.
+#define how to take averages
+f1=c(0,1)
+f2=c(0,rep(1/2,2))
+f3=c(0,rep(1/3,3))
+f4=c(0,rep(1/4,4))
+
+
+#calculate the averages
+ny.marine.data$WVHT_f1_44025=filter(ny.marine.data$WVHT_44025,f1,sides=1)
+ny.marine.data$WSPD_f1_44025=filter(ny.marine.data$WSPD_44025,f1,sides=1)
+ny.marine.data$DPD_f1_44025=filter(ny.marine.data$DPD_44025,f1,sides=1)
+ny.marine.data$BAR_f1_44025=filter(ny.marine.data$BAR_44025,f1,sides=1)
+
+ny.marine.data$WVHT_f2_44025=filter(ny.marine.data$WVHT_44025,f2,sides=1)
+ny.marine.data$WSPD_f2_44025=filter(ny.marine.data$WSPD_44025,f2,sides=1)
+ny.marine.data$DPD_f2_44025=filter(ny.marine.data$DPD_44025,f2,sides=1)
+ny.marine.data$BAR_f2_44025=filter(ny.marine.data$BAR_44025,f2,sides=1)
+
+ny.marine.data$WVHT_f3_44025=filter(ny.marine.data$WVHT_44025,f3,sides=1)
+ny.marine.data$WSPD_f3_44025=filter(ny.marine.data$WSPD_44025,f3,sides=1)
+ny.marine.data$DPD_f3_44025=filter(ny.marine.data$DPD_44025,f3,sides=1)
+ny.marine.data$BAR_f3_44025=filter(ny.marine.data$BAR_44025,f3,sides=1)
+
+ny.marine.data$WVHT_f4_44025=filter(ny.marine.data$WVHT_44025,f4,sides=1)
+ny.marine.data$WSPD_f4_44025=filter(ny.marine.data$WSPD_44025,f4,sides=1)
+ny.marine.data$DPD_f4_44025=filter(ny.marine.data$DPD_44025,f4,sides=1)
+ny.marine.data$BAR_f4_44025=filter(ny.marine.data$BAR_44025,f4,sides=1)
+
+######################
+#Weather variable descriptions
+######################
+#WSPD  Wind speed (m/s) averaged over an eight-minute period for buoys and a two-minute period for land stations. Reported Hourly
+#GST  Peak 5 or 8 second gust speed (m/s) measured during the eight-minute or two-minute period.
+#DPD  Dominant wave period (seconds) is the period with the maximum wave energy.
+#WVHT  Significant wave height (meters) is calculated as the average of the highest one-third of all of the wave heights during the 20-minute sampling period.
+#ATMP  Air temperature (Celsius).
+#PRES  Sea level pressure (hPa). For C-MAN sites and Great Lakes buoys, the recorded pressure is reduced to sea level using the method described in NWS Technical Procedures Bulletin 291 (11/14/80).
+#DEWP  Dewpoint temperature taken at the same height as the air temperature measurement.
+#APD  Average wave period (seconds) of all waves during the 20-minute period. (Almost same as DPD)
+#WDIR  Wind direction (the direction the wind is coming from in degrees clockwise from true N) during the same period used for WSPD.
+
+######################
+#Merge new weather data to fulton data.
+######################
+
+fish.data=merge(fish.data, ny.marine.data, by="date")
+
+
+######################
+#Examine new instruments in Fulton data.
+######################
+library(systemfit)
+#Define demand equation
+eqDemand=qty~price
+
+#Define supply equation
+eqSupply=qty~price+fish.data$WSPD
+
+#Define instruments
+inst=~fish.data$WSPD
+
+#Fit OLS to system of equations
+eqSystem=list(demand=eqDemand, supply=eqSupply)
+fit2sls2=systemfit(eqSystem,method="2SLS",inst=inst)
+print(fit2sls2)
+
+#Use wave height
+#Define supply equation
+eqSupply=qty~price+fish.data$WVHT
+
+#Define instruments
+inst=~fish.data$WVHT
+
+#Fit OLS to system of equations
+eqSystem=list(demand=eqDemand, supply=eqSupply)
+fit2sls3=systemfit(eqSystem,method="2SLS",inst=inst)
+print(fit2sls3)
+
+#generate plot of price vs quantity with estimated demands as ablines for angrist estimate.
+plot(price~qty, ylab="log(Price)", xlab="log(Quantity)")
+abline(fit2sls1,lty=1)
+
+
+#evaluate alternative instruments
+summary(lm(qty~stormy))
+summary(lm(qty~mixed))
+summary(lm(qty~fish.data$WVHT))
+summary(lm(qty~fish.data$WSPD))
+summary(lm(qty~fish.data$WD))
+summary(lm(qty~fish.data$GST))
+summary(lm(qty~fish.data$DPD))
+summary(lm(qty~fish.data$APD))
+summary(lm(qty~fish.data$MWD))
+summary(lm(qty~fish.data$BAR))
+summary(lm(qty~fish.data$ATMP))
+summary(lm(qty~fish.data$WTMP))
+summary(lm(qty~fish.data$DEWP))
+summary(lm(qty~fish.data$VIS))
+
+#look at Day of the week effects
+fish.data$dow=0
+fish.data$dow[fish.data$day1==1]=1
+fish.data$dow[fish.data$day2==1]=2
+fish.data$dow[fish.data$day3==1]=3
+fish.data$dow[fish.data$day4==1]=4
+plot(fish.data$qty~fish.data$dow)
+
+
+summary(lm(fish.data$qty~fish.data$WVHT+fish.data$day1+fish.data$day2+fish.data$day3+fish.data$day4))
+summary(lm(fish.data$qty~fish.data$stormy+fish.data$day1+fish.data$day2+fish.data$day3+fish.data$day4))
+summary(lm(fish.data$qty~fish.data$stormy))
+
+plot(fish.data$qty~fish.data$WVHT)
+
+#run through all WVHTs to determine optimal split
+
+#generate list of variables to search through
+varlist=names(fish.data)[28]
+
+#generate blank dataframe to put values into
+inst_search=data.frame(f_stat=numeric(),WSPD_br=numeric(),DPD_br=numeric(),WVHT_br=numeric())
+
+#create row counter
+row=1
+
+for(a in min(fish.data$WSPD_f3_44025):max(fish.data$WSPD_f4_44025)){
+  for(b in min(fish.data$DPD_f3_44025):max(fish.data$DPD_f4_44025)){
+    for(c in min(fish.data$WVHT_f3_44025):max(fish.data$WVHT_f4_44025)){
+        fish.data$br=0
+        fish.data$br[fish.data$WSPD_f4_44025>=a & fish.data$DPD_f4_44025>=b & fish.data$WVHT_f4_44025>=c]=1
+        #force f to be a vector of length 1 to account for f_stats that don't exist because of data
+        f=as.numeric(summary(lm(fish.data$qty~fish.data$br))$fstatistic[1])
+        if (length(f)==0) {
+          f=0
+        }
+        #print(f)
+        #print(a)
+        #print(b)
+        #print(c)
+        #print(d)
+        
+        inst_search[row,]=c(f,a,b,c)
+        row=row+1
+    }
+  }
+}
+head(inst_search)
+max(inst_search$f_stat)
+
+########
+########
+
+#for(v in varlist){
+for(i in 1:max(fish.data$WVHT)){
+  fish.data$br=0
+  fish.data$br[fish.data$WVHT>=i]=1
+  p=as.numeric(summary(lm(fish.data$qty~fish.data$br))$coefficients[2,4])
+  print(p)
+  c=as.numeric(summary(lm(fish.data$qty~fish.data$br))$coefficients[2,1])
+  print(c)
+  if (p<0.05){
+  cmin=min(c(c,cmin))
+  }
+  else{
+    cmin=cmin
+  }
+  print(i)
+  #inst_search$var="WVHT"
+  #inst_search$p_value=p
+  #inst_search$coef=c
+  #inst_search$br=i
+  inst_search[row,]=c("WVHT",p,c,i)
+  row=row+1
+}
+#}
+cmin
+inst_search
+######################
+#Estimate demand from alternative NE auctions
+######################
+
+NE.fish.data=read.csv("NE_fish_auction_data.csv")
+
+#change 0's in quantity to 0.05
+NE.fish.data$LBS...000s.[NE.fish.data$LBS...000s.==0]=0.025
+
+#aggregate data to species level by taking mean prices and sum of quantity
+a=aggregate(Low~Species+Date+Location, NE.fish.data, mean, na.rm=T)
+b=aggregate(Average~Species+Date+Location, NE.fish.data, mean, na.rm=T)
+c=aggregate(High~Species+Date+Location, NE.fish.data, mean, na.rm=T)
+d=aggregate(LBS...000s.~Species+Date+Location, NE.fish.data, sum, na.rm=T)
+
+e=merge(a,b, by=c("Species","Date","Location"))
+f=merge(c,d, by=c("Species","Date","Location"))
+NE.fish.data=merge(e,f, by=c("Species","Date","Location"))
+
+#merge weather data to NE.fish.data
+NE.fish.data$date=as.Date(NE.fish.data$Date,"%d-%b-%y")
+
+marine.data$Location[marine.data$buoy=="X44020"]="base"
+marine.data$Location[marine.data$buoy=="A01"]="capeann"
+marine.data$Location[marine.data$buoy=="X44007"]="portland"
+
+NE.fish.data=merge(NE.fish.data, marine.data, by=c("date","Location"))
+
+#Tidy up column names
+names(NE.fish.data)[names(NE.fish.data)=="Average"]="price"
+names(NE.fish.data)[names(NE.fish.data)=="LBS...000s."]="qty"
+names(NE.fish.data)[names(NE.fish.data)=="Daily_Average.Wave_Height_m"]="WVHT"
+names(NE.fish.data)[names(NE.fish.data)=="Daily_Average.Wind_Speed_m.s"]="WSPD"
+
+#convert instruments to numerics
+NE.fish.data$WVHT=as.numeric(as.character(NE.fish.data$WVHT))
+NE.fish.data$WSPD=as.numeric(as.character(NE.fish.data$WSPD))
+
+#correct for price units by dividing by 100.
+NE.fish.data$Average=NE.fish.data$Average/100
+
+#put quantity in units lbs.
+NE.fish.data$LBS...000s.=NE.fish.data$LBS...000s.*1000
+
+#log quantity and log average price.
+NE.fish.data$LBS...000s.=log(NE.fish.data$LBS...000s.)
+NE.fish.data$Average=log(NE.fish.data$Average)
+
+######################
+#Define subsample and estimate demand
+######################
+
+#############
+#CAPE ANN
+#############
+
+#Keep only data from cape ann and only cod.
+NE.fish.data_1=subset(NE.fish.data, Location=="capeann" & Species=="COD")
+
+#Use WVHT
+#Define demand equation
+eqDemand=NE.fish.data_1$qty~NE.fish.data_1$price
+
+#Define supply equation
+eqSupply=NE.fish.data_1$qty~NE.fish.data_1$price+NE.fish.data_1$WVHT
+
+#Define instruments
+inst=~NE.fish.data_1$WVHT
+
+#Fit 2SLS to system of equations
+eqSystem=list(demand=eqDemand, supply=eqSupply)
+fit2sls=systemfit(eqSystem,method="2SLS",inst=inst)
+print(fit2sls)
+
+#Use WSPD
+#Define demand equation
+eqDemand=NE.fish.data_1$qty~NE.fish.data_1$price
+
+#Define supply equation
+eqSupply=NE.fish.data_1$qty~NE.fish.data_1$price+NE.fish.data_1$WSPD
+
+#Define instruments
+inst=~NE.fish.data_1$WSPD
+
+#Fit 2SLS to system of equations
+eqSystem=list(demand=eqDemand, supply=eqSupply)
+fit2sls=systemfit(eqSystem,method="2SLS",inst=inst)
+print(fit2sls)
+
+#Keep only data from cape ann and only king whiting.
+NE.fish.data_1=subset(NE.fish.data, Location=="capeann" & Species=="KING WHITING")
+
+#Use WVHT
+#Define demand equation
+eqDemand=NE.fish.data_1$qty~NE.fish.data_1$price
+
+#Define supply equation
+eqSupply=NE.fish.data_1$qty~NE.fish.data_1$price+NE.fish.data_1$WVHT
+
+#Define instruments
+inst=~NE.fish.data_1$WVHT
+
+#Fit 2SLS to system of equations
+eqSystem=list(demand=eqDemand, supply=eqSupply)
+fit2sls=systemfit(eqSystem,method="2SLS",inst=inst)
+print(fit2sls)
+
+#Use WSPD
+#Define demand equation
+eqDemand=NE.fish.data_1$qty~NE.fish.data_1$price
+
+#Define supply equation
+eqSupply=NE.fish.data_1$qty~NE.fish.data_1$price+NE.fish.data_1$WSPD
+
+#Define instruments
+inst=~NE.fish.data_1$WSPD
+
+#Fit 2SLS to system of equations
+eqSystem=list(demand=eqDemand, supply=eqSupply)
+fit2sls=systemfit(eqSystem,method="2SLS",inst=inst)
+print(fit2sls)
+
+#############
+#BASE
+#############
+
+#Keep only data from BASE and only cod.
+NE.fish.data_1=subset(NE.fish.data, Location=="base" & Species=="COD")
+
+#Use WVHT
+#Define demand equation
+eqDemand=NE.fish.data_1$qty~NE.fish.data_1$price
+
+#Define supply equation
+eqSupply=NE.fish.data_1$qty~NE.fish.data_1$price+NE.fish.data_1$WVHT
+
+#Define instruments
+inst=~NE.fish.data_1$WVHT
+
+#Fit 2SLS to system of equations
+eqSystem=list(demand=eqDemand, supply=eqSupply)
+fit2sls=systemfit(eqSystem,method="2SLS",inst=inst)
+print(fit2sls)
+
+#Use WSPD
+#Define demand equation
+eqDemand=NE.fish.data_1$qty~NE.fish.data_1$price
+
+#Define supply equation
+eqSupply=NE.fish.data_1$qty~NE.fish.data_1$price+NE.fish.data_1$WSPD
+
+#Define instruments
+inst=~NE.fish.data_1$WSPD
+
+#Fit 2SLS to system of equations
+eqSystem=list(demand=eqDemand, supply=eqSupply)
+fit2sls=systemfit(eqSystem,method="2SLS",inst=inst)
+print(fit2sls)
+
+#Keep only data from cape ann and only king whiting.
+NE.fish.data_1=subset(NE.fish.data, Location=="base" & Species=="KING WHITING")
+
+#Use WVHT
+#Define demand equation
+eqDemand=NE.fish.data_1$qty~NE.fish.data_1$price
+
+#Define supply equation
+eqSupply=NE.fish.data_1$qty~NE.fish.data_1$price+NE.fish.data_1$WVHT
+
+#Define instruments
+inst=~NE.fish.data_1$WVHT
+
+#Fit 2SLS to system of equations
+eqSystem=list(demand=eqDemand, supply=eqSupply)
+fit2sls=systemfit(eqSystem,method="2SLS",inst=inst)
+print(fit2sls)
+
+#Use WSPD
+#Define demand equation
+eqDemand=NE.fish.data_1$qty~NE.fish.data_1$price
+
+#Define supply equation
+eqSupply=NE.fish.data_1$qty~NE.fish.data_1$price+NE.fish.data_1$WSPD
+
+#Define instruments
+inst=~NE.fish.data_1$WSPD
+
+#Fit 2SLS to system of equations
+eqSystem=list(demand=eqDemand, supply=eqSupply)
+fit2sls=systemfit(eqSystem,method="2SLS",inst=inst)
+print(fit2sls)
+
+#############
+#Portland
+#############
+
+#Keep only data from BASE and only cod.
+NE.fish.data_1=subset(NE.fish.data, Location=="portland" & Species=="COD")
+
+#Use WVHT
+#Define demand equation
+eqDemand=NE.fish.data_1$qty~NE.fish.data_1$price
+
+#Define supply equation
+eqSupply=NE.fish.data_1$qty~NE.fish.data_1$price+NE.fish.data_1$WVHT
+
+#Define instruments
+inst=~NE.fish.data_1$WVHT
+
+#Fit 2SLS to system of equations
+eqSystem=list(demand=eqDemand, supply=eqSupply)
+fit2sls=systemfit(eqSystem,method="2SLS",inst=inst)
+print(fit2sls)
+
+#Use WSPD
+#Define demand equation
+eqDemand=NE.fish.data_1$qty~NE.fish.data_1$price
+
+#Define supply equation
+eqSupply=NE.fish.data_1$qty~NE.fish.data_1$price+NE.fish.data_1$WSPD
+
+#Define instruments
+inst=~NE.fish.data_1$WSPD
+
+#Fit 2SLS to system of equations
+eqSystem=list(demand=eqDemand, supply=eqSupply)
+fit2sls=systemfit(eqSystem,method="2SLS",inst=inst)
+print(fit2sls)
+
+#Keep only data from cape ann and only king whiting.
+NE.fish.data_1=subset(NE.fish.data, Location=="portland" & Species=="KING WHITING")
+
+#Use WVHT
+#Define demand equation
+eqDemand=NE.fish.data_1$qty~NE.fish.data_1$price
+
+#Define supply equation
+eqSupply=NE.fish.data_1$qty~NE.fish.data_1$price+NE.fish.data_1$WVHT
+
+#Define instruments
+inst=~NE.fish.data_1$WVHT
+
+#Fit 2SLS to system of equations
+eqSystem=list(demand=eqDemand, supply=eqSupply)
+fit2sls=systemfit(eqSystem,method="2SLS",inst=inst)
+print(fit2sls)
+
+#Use WSPD
+#Define demand equation
+eqDemand=NE.fish.data_1$qty~NE.fish.data_1$price
+
+#Define supply equation
+eqSupply=NE.fish.data_1$qty~NE.fish.data_1$price+NE.fish.data_1$WSPD
+
+#Define instruments
+inst=~NE.fish.data_1$WSPD
+
+#Fit 2SLS to system of equations
+eqSystem=list(demand=eqDemand, supply=eqSupply)
+fit2sls=systemfit(eqSystem,method="2SLS",inst=inst)
+print(fit2sls)
